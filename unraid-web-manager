@@ -1,0 +1,60 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+  <!ENTITY name "unraid-web-manager">
+  <!ENTITY author "Algorithmic Alchemy">
+  <!ENTITY version "2025.11.22">
+  <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/hello-world-unraid-plugin/main/unraid-web-manager.plg">
+]>
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
+
+  <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/HelloWorld.page">
+    <INLINE>
+      <![CDATA[
+Menu="Settings"
+Icon="hello-world-safe.png"
+Version="&version;"
+Author="&author;"
+Title="Hello World Plugin (Safe)"
+---
+<?php
+  echo "<h1>Hello World from Unraid Plugin (Safe)! ✅</h1>";
+  echo "<p>This page confirms the full header attributes and PHP are working correctly.</p>";
+?>
+      ]]>
+    </INLINE>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/README.md">
+    <INLINE>
+      <![CDATA[
+**Hello World Plugin (Safe)**
+This is a minimalist plugin created for learning the Unraid plugin system.
+It demonstrates a safe removal script and a functional web GUI page.
+      ]]>
+    </INLINE>
+  </FILE>
+
+  <FILE Run="/bin/bash" Method="remove">
+    <INLINE>
+      <![CDATA[
+        PLUGIN_DIR="/usr/local/emhttp/plugins/unraid-web-manager"
+        CONFIG_DIR="/boot/config/plugins/unraid-web-manager"
+
+        echo "Attempting safe removal of plugin: unraid-web-manager"
+
+        if [ -d "$PLUGIN_DIR" ]; then
+          rm -r "$PLUGIN_DIR"
+          echo "Removed $PLUGIN_DIR"
+        fi
+
+        if [ -d "$CONFIG_DIR" ]; then
+          rm -r "$CONFIG_DIR"
+          echo "Removed $CONFIG_DIR"
+        fi
+
+        echo "Safe removal complete."
+      ]]>
+    </INLINE>
+  </FILE>
+
+</PLUGIN>
