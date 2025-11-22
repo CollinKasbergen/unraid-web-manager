@@ -4,6 +4,7 @@
   <!ENTITY author "Algorithmic Alchemy">
   <!ENTITY version "2025.11.22">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/hello-world-unraid-plugin/main/unraid-web-manager.plg">
+  <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
@@ -14,10 +15,10 @@ Menu="Settings"
 Icon="hello-world-safe.png"
 Version="&version;"
 Author="&author;"
-Title="Hello World Plugin (Safe)"
+Title="Hello World Unraid Web Manager"
 ---
 <?php
-  echo "<h1>Hello World from Unraid Plugin (Safe)! ✅</h1>";
+  echo "<h1>Hello World from Unraid Web Manager! ✅</h1>";
   echo "<p>This page confirms the full header attributes and PHP are working correctly.</p>";
 ?>
       ]]>
@@ -27,9 +28,8 @@ Title="Hello World Plugin (Safe)"
   <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/README.md">
     <INLINE>
       <![CDATA[
-**Hello World Plugin (Safe)**
-This is a minimalist plugin created for learning the Unraid plugin system.
-It demonstrates a safe removal script and a functional web GUI page.
+**Unraid Web Manager**
+This is a minimalist plugin created for creating and managing Nginx and FastAPI servers quickly.
       ]]>
     </INLINE>
   </FILE>
