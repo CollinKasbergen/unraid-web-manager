@@ -3,7 +3,7 @@
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Algorithmic Alchemy">
   <!ENTITY version "2025.11.22">
-  <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
+  <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
