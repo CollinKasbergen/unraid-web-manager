@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.6">
+  <!ENTITY version "0.1.7">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
@@ -25,7 +25,6 @@ case "$COMMAND" in
   setup-webserver)
     echo "--- Running Basic Web Server Setup ---" >> "$OUTPUT_FILE"
     echo "Simulating server configuration..." >> "$OUTPUT_FILE"
-    # Added a quick sleep here to ensure the poll has time to start
     sleep 1
     echo "Setup complete. Status: Success" >> "$OUTPUT_FILE"
     ;;
@@ -48,7 +47,7 @@ exit 0
   </FILE>
 
   <!-- 
-  2. EXECUTE SCRIPT HELPER (Uses secure, non-blocking exec_cmd)
+  2. EXECUTE SCRIPT HELPER (Uses nohup for maximum detachment)
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/ExecuteScript.php">
     <INLINE>
@@ -72,8 +71,12 @@ chmod($script_path, 0777);
 // 2. Clear the previous output file
 if (file_exists($output_file)) unlink($output_file);
 
-// 3. Execute the script using the highly stable WebUI function (with background &)
-$full_cmd = "$script_path $command &";
+// 3. Execute the script using the highly stable WebUI function with NOHUP
+// NOHUP ensures the process is completely detached and redirected, guaranteeing
+// that the PHP script returns immediately.
+// Note: We MUST redirect the script's output to the file we want to poll.
+$script_execution_cmd = "$script_path $command > $output_file 2>&1";
+$full_cmd = "nohup $script_execution_cmd &"; // Final command: nohup /path/to/script param > /tmp/file 2>&1 &
 
 // exec_cmd is the most reliable way to run system commands in Unraid's PHP context
 exec_cmd($full_cmd);
@@ -86,8 +89,7 @@ echo "Script successfully initiated: " . $full_cmd;
   </FILE>
 
   <!-- 
-  3. WEB MANAGER PAGE (The visible dashboard)
-  Now uses plain text polling for maximum stability.
+  3. WEB MANAGER PAGE (The visible dashboard, polls for output)
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -113,7 +115,7 @@ if ($f) fclose($f);
 if (isset($_POST['poll'])) {
     if (file_exists($output_file)) {
         // Line 1: STATUS (complete)
-        // Line 2: OUTPUT (content)
+        // Line 2+: OUTPUT (content)
         echo "complete\n" . file_get_contents($output_file);
     } else {
         // Line 1: STATUS (running)
@@ -189,7 +191,7 @@ if (isset($_POST['poll'])) {
             }, 1000); 
         })
         .catch(error => {
-            outputBox.innerHTML = 'Error initiating script via ExecuteScript.php: ' + error;
+            outputBox.innerHTML = 'Error initiating script via ExecuteScript.php. Check browser console for network error.';
             button.disabled = false;
             button.innerHTML = originalText;
         });
