@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.13">
+  <!ENTITY version "0.1.14">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
   <!-- 
-  1. CORE SCRIPT (The execution target)
+  1. CORE SCRIPT (Uses /root/ for debugging to check if /tmp is blocked)
   -->
   <FILE Name="&scriptdir;/management_core.sh" Mode="0777">
     <INLINE>
@@ -17,10 +17,18 @@
 #!/bin/bash
 COMMAND="$1"
 OUTPUT_FILE="/tmp/unraid_web_manager_output.txt"
-DEBUG_FILE="/tmp/web-manager-debug-start.log"
+# DIAGNOSTIC: New debug file in a less restricted location
+DEBUG_FILE="/root/web-manager-DEBUG-FINAL.log"
 
 # CRITICAL DEBUG STEP 1: Write immediately to the debug log.
-echo "$(date +'%Y-%m-%d %H:%M:%S') [DEBUG] Script STARTED with command: $COMMAND" >> "$DEBUG_FILE"
+echo "$(date +'%Y-%m-%d %H:%M:%S') [DIAGNOSTIC] Script STARTED with command: $COMMAND" >> "$DEBUG_FILE"
+echo "USER: $(whoami)" >> "$DEBUG_FILE"
+echo "PATH: $PATH" >> "$DEBUG_FILE"
+echo "--- ENVIRONMENT DUMP ---" >> "$DEBUG_FILE"
+# Dump environment variables to look for restrictions
+env >> "$DEBUG_FILE"
+echo "------------------------" >> "$DEBUG_FILE"
+
 
 # Clear previous output
 echo "$(date) - Starting $COMMAND..." > "$OUTPUT_FILE"
@@ -44,7 +52,7 @@ case "$COMMAND" in
     ;;
 esac
 
-echo "$(date +'%Y-%m-%d %H:%M:%S') [DEBUG] Script FINISHED processing $COMMAND" >> "$DEBUG_FILE"
+echo "$(date +'%Y-%m-%d %H:%M:%S') [DIAGNOSTIC] Script FINISHED processing $COMMAND" >> "$DEBUG_FILE"
 echo "$(date) - Finished $COMMAND." >> "$OUTPUT_FILE"
 exit 0
       ]]>
@@ -52,8 +60,7 @@ exit 0
   </FILE>
 
   <!-- 
-  2. WEB MANAGER PAGE (The visible dashboard, polls for output)
-  Uses 'at now' for guaranteed background execution.
+  2. WEB MANAGER PAGE (Returns to simple nohup execution)
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -66,7 +73,8 @@ Title="Web Manager"
 $plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
 $output_file = "/tmp/unraid_web_manager_output.txt";
-$debug_file = "/tmp/web-manager-debug-start.log";
+$debug_file_tmp = "/tmp/web-manager-debug-start.log";
+$debug_file_final = "/root/web-manager-DEBUG-FINAL.log";
 
 // ---------------------------------------------------------
 // POLL HANDLER (Reads output file)
@@ -97,15 +105,17 @@ if ($f) fclose($f);
         <strong>Debug Info:</strong><br>
         Script Path: <code><?php echo $script_path; ?></code><br>
         Permissions: <code><?php echo $file_perms; ?></code><br>
-        Shebang Check: <code><?php echo htmlspecialchars(trim($first_line)); ?></code>
+        Shebang Check: <code><?php echo htmlspecialchars(trim($first_line)); ?></code><br>
+        <strong style="color: red;">DIAGNOSTIC FILE LOCATION: <code><?php echo $debug_file_final; ?></code></strong>
     </div>
 
     <div style="margin-top: 20px;">
         <p style="color: red; font-weight: bold;">
-            *** FINAL ATTEMPT: AT JOB QUEUE ***
+            *** FINAL DIAGNOSTIC TEST ***
         </p>
         <p>
-            The previous methods were blocked by a severe OS security restriction. We are now using the system job queue (`at now`) to force execution in a less restricted context.
+            This attempt uses the standard `nohup` method but writes the debug log to the `/root/` directory to bypass any restriction on `/tmp`. After testing, please run: 
+            <code style="display: block; background: #ddd; padding: 5px; border-radius: 4px;">cat <?php echo $debug_file_final; ?></code>
         </p>
     </div>
 
@@ -127,7 +137,8 @@ if ($f) fclose($f);
     var pollCount = 0;
     
     var script_path = "<?php echo $script_path; ?>";
-    var debug_file = "<?php echo $debug_file; ?>";
+    var debug_file_tmp = "<?php echo $debug_file_tmp; ?>";
+    var debug_file_final = "<?php echo $debug_file_final; ?>";
     var output_file = "<?php echo $output_file; ?>";
 
     var buttons = document.getElementsByClassName('action-btn');
@@ -137,7 +148,7 @@ if ($f) fclose($f);
         });
     }
 
-    // 1. Start Command: Uses 'at now' to queue the script for immediate background execution
+    // 1. Start Command: Uses standard nohup execution
     function startCommand(action, button) {
         clearInterval(pollInterval);
         pollCount = 0;
@@ -147,25 +158,22 @@ if ($f) fclose($f);
         
         button.disabled = true;
         button.innerHTML = 'Starting...';
-        outputBox.innerHTML = 'Initiating command: ' + action + ' via AT job queue...';
+        outputBox.innerHTML = 'Initiating command: ' + action + ' via standard nohup...';
 
-        // 1. Clear files locally first
-        var clearCmd = 'rm -f ' + debug_file + ' ' + output_file;
+        // 1. Clear both files (tmp and root)
+        var clearCmd = 'rm -f ' + debug_file_tmp + ' ' + debug_file_final + ' ' + output_file;
         getpage({ url: '/update.php', post: 'cmd=' + encodeURIComponent(clearCmd) + '&csrf_token=' + token }); 
 
-        // 2. Build the command to be run: nohup script > /dev/null 2>&1
-        var execCmd = 'nohup ' + script_path + ' ' + action + ' > /dev/null 2>&1';
+        // 2. Build the final command string for detached execution (Standard nohup)
+        var runCmd = 'nohup ' + script_path + ' ' + action + ' > /dev/null 2>&1 &'; 
         
-        // 3. Command submitted to 'at now' via standard input
-        var finalCmd = 'echo ' + JSON.stringify(execCmd) + ' | at now';
-
-        // 4. Use the global getpage() function (Standard Unraid method)
+        // 3. Use the global getpage() function (Standard Unraid method)
         getpage({
             url: '/update.php', 
-            post: 'cmd=' + encodeURIComponent(finalCmd) + '&csrf_token=' + token,
+            post: 'cmd=' + encodeURIComponent(runCmd) + '&csrf_token=' + token,
             cb: function(data) {
                 // Command submitted successfully. Start polling for results.
-                outputBox.innerHTML = 'AT job queued successfully. Starting poll...';
+                outputBox.innerHTML = 'Command submitted successfully. Starting poll...';
                 button.innerHTML = 'Polling...';
                 pollInterval = setInterval(function() {
                     pollForOutput(button, originalText, outputBox);
