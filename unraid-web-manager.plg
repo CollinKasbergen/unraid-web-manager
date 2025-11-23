@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.17">
+  <!ENTITY version "0.1.17.2">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
@@ -47,7 +47,7 @@ exit 0
   </FILE>
 
   <!-- 
-  2. WEB MANAGER PAGE (Updated for SYNCHRONOUS execution test)
+  2. WEB MANAGER PAGE (Updated for SYNCHRONOUS execution test and XHR fix)
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -124,6 +124,32 @@ if (isset($_POST['poll'])) {
         });
     }
 
+    // New Helper function to execute a command via AJAX
+    function executeCommand(cmd, successCallback, errorCallback) {
+        var formData = new FormData();
+        // The core command sent to /update.php must be URL-encoded
+        formData.append('cmd', encodeURIComponent(cmd));
+        formData.append('csrf_token', token);
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/update.php', true);
+        
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                if (successCallback) successCallback(xhr.responseText);
+            } else {
+                // If the update.php request fails (e.g., HTTP error 500)
+                if (errorCallback) errorCallback(xhr.status);
+            }
+        };
+        
+        xhr.onerror = function() {
+            if (errorCallback) errorCallback('Network Error');
+        };
+        
+        xhr.send(formData);
+    }
+
     // 1. Start Command: Uses SYNCHRONOUS execution for this test
     function startCommand(action, button) {
         clearInterval(pollInterval);
@@ -136,36 +162,37 @@ if (isset($_POST['poll'])) {
         button.innerHTML = 'Executing Synchronously...';
         outputBox.innerHTML = 'Attempting direct synchronous execution: ' + action + '...';
 
-        // 1. Clear files
+        // 1. Command to clear the previous output file
         var clearCmd = 'rm -f ' + output_file;
-        // NOTE: We don't need to await the clear command since the main command is synchronous now.
-        getpage({ url: '/update.php', post: 'cmd=' + encodeURIComponent(clearCmd) + '&csrf_token=' + token }); 
 
-        // 2. Build the final command string for SYNCHRONOUS execution
-        // We removed 'nohup' and the trailing '&'
-        var runCmd = script_path + ' ' + action; 
-        
-        // 3. Use the global getpage() function
-        getpage({
-            url: '/update.php', 
-            post: 'cmd=' + encodeURIComponent(runCmd) + '&csrf_token=' + token,
-            cb: function(data) {
-                // Command executed. The output file should be immediately available (or the execution failed).
+        // Execute the clear command first
+        executeCommand(clearCmd, function() {
+            // Success clearing the file, now run the main command
+            
+            // 2. Build the final command string for SYNCHRONOUS execution (no nohup or &)
+            var runCmd = script_path + ' ' + action; 
+            
+            // 3. Execute the main command
+            executeCommand(runCmd, function(data) {
+                // Command executed successfully (update.php responded 200)
                 outputBox.innerHTML = 'Execution finished. Checking output file...';
                 
                 // Since the execution is synchronous, we poll once immediately to read the file.
-                // We fake the polling loop here to maintain the structure but simplify the logic.
-                // The script's output message ("The script could not run...") should be present.
                 setTimeout(function() {
-                     pollForOutput(button, originalText, outputBox, true); // true = single attempt
+                     pollForOutput(button, originalText, outputBox, true);
                 }, 100); 
-            },
-            error: function(status) {
-                // This means the /update.php request itself failed (e.g., HTTP error 500)
+            }, function(status) {
+                // Main command execution error (HTTP error on update.php)
                 outputBox.innerHTML = 'CRITICAL ERROR: Unraid system command execution failed. HTTP Status: ' + status;
                 button.disabled = false;
                 button.innerHTML = originalText;
-            }
+            });
+
+        }, function(status) {
+            // Error clearing the file (if /update.php fails to run rm -f)
+            outputBox.innerHTML = 'ERROR: Failed to clear temporary output file. HTTP Status: ' + status;
+            button.disabled = false;
+            button.innerHTML = originalText;
         });
     }
 
