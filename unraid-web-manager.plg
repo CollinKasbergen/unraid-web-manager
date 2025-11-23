@@ -68,21 +68,44 @@ Title="Web Manager"
 <?php
 $plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
+$log_file = "/tmp/web-manager-debug.log";
 
+// ---------------------------------------------------------
+// DIAGNOSTICS: Check file state before running
+// ---------------------------------------------------------
+$file_perms = substr(sprintf('%o', fileperms($script_path)), -4);
+$first_line = "File not found";
+if(file_exists($script_path)) {
+    $f = fopen($script_path, 'r');
+    $first_line = fgets($f); 
+    fclose($f);
+}
+
+// ---------------------------------------------------------
+// ACTION HANDLER
+// ---------------------------------------------------------
 if (isset($_POST['action'])) {
-    if (!file_exists($script_path)) {
-        echo "CRITICAL ERROR: Script file missing at $script_path";
-        exit;
-    }
+    // 1. Sanitize the script file (Self-Healing)
+    // We convert DOS line endings to Unix and force executable permissions
+    shell_exec("dos2unix " . escapeshellarg($script_path) . " 2>&1");
+    chmod($script_path, 0777);
 
+    // 2. Prepare Command
     $command = escapeshellarg($_POST['action']);
     $full_cmd = "$script_path $command 2>&1";
-    
+
+    // 3. Log start
+    file_put_contents($log_file, date("H:i:s") . " - Starting $full_cmd\n", FILE_APPEND);
+
+    // 4. Execute
     exec($full_cmd, $output, $return_var);
     
-    echo "Command executed: $full_cmd\n";
+    // 5. Output results
+    echo "--- DIAGNOSTICS ---\n";
+    echo "Script Path: $script_path\n";
     echo "Return Code: $return_var\n";
-    echo "--------------------------\n";
+    echo "Permissions: " . substr(sprintf('%o', fileperms($script_path)), -4) . "\n";
+    echo "--- OUTPUT ---\n";
     echo implode("\n", $output);
     exit;
 }
@@ -90,7 +113,13 @@ if (isset($_POST['action'])) {
 
 <div style="padding: 20px;">
     <h2>Web Server Manager</h2>
-    <p>Script Path: <?php echo $script_path; ?></p>
+    
+    <div style="background: #eef; padding: 10px; border: 1px solid #ccd; margin-bottom: 20px;">
+        <strong>Debug Info:</strong><br>
+        Script Path: <code><?php echo $script_path; ?></code><br>
+        Permissions: <code><?php echo $file_perms; ?></code> (Should be 0777 or 0755)<br>
+        Shebang Check: <code><?php echo htmlspecialchars(trim($first_line)); ?></code> (Should be #!/bin/bash)
+    </div>
 
     <div style="margin-top: 20px;">
         <button type="button" class="action-btn" data-cmd="setup-webserver">Setup Web Server</button>
@@ -128,19 +157,26 @@ if (isset($_POST['action'])) {
 
         var xhr = new XMLHttpRequest();
         xhr.open('POST', window.location.href, true);
+        xhr.timeout = 5000; // Timeout after 5 seconds
         
         xhr.onload = function () {
             if (xhr.status === 200) {
                 outputBox.innerHTML = xhr.responseText;
             } else {
-                outputBox.innerHTML = 'HTTP Error: ' + xhr.status;
+                outputBox.innerHTML = 'HTTP Error: ' + xhr.status + "\n" + xhr.responseText;
             }
             button.disabled = false;
             button.innerHTML = originalText;
         };
         
+        xhr.ontimeout = function () {
+            outputBox.innerHTML = 'Error: Request timed out. Script might be hanging.';
+            button.disabled = false;
+            button.innerHTML = originalText;
+        };
+
         xhr.onerror = function() {
-            outputBox.innerHTML = 'Network/Request Error';
+            outputBox.innerHTML = 'Network/Request Error. Check console (F12).';
             button.disabled = false;
             button.innerHTML = originalText;
         };
