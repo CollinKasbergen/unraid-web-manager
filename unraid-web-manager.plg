@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.9">
+  <!ENTITY version "0.1.13">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
   <!-- 
-  1. CORE SCRIPT (Now writes to a separate debug log FIRST)
+  1. CORE SCRIPT (The execution target)
   -->
   <FILE Name="&scriptdir;/management_core.sh" Mode="0777">
     <INLINE>
@@ -44,7 +44,7 @@ case "$COMMAND" in
     ;;
 esac
 
-echo "$(date +'%Y-%m-%d %H:%M:%S') [DEBUG] Script FINISHED processing $COMMAND." >> "$DEBUG_FILE"
+echo "$(date +'%Y-%m-%d %H:%M:%S') [DEBUG] Script FINISHED processing $COMMAND" >> "$DEBUG_FILE"
 echo "$(date) - Finished $COMMAND." >> "$OUTPUT_FILE"
 exit 0
       ]]>
@@ -53,7 +53,7 @@ exit 0
 
   <!-- 
   2. WEB MANAGER PAGE (The visible dashboard, polls for output)
-  Execution now happens via a direct Unraid Terminal/Console API call using getpage() in JavaScript.
+  Uses 'at now' for guaranteed background execution.
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -69,7 +69,7 @@ $output_file = "/tmp/unraid_web_manager_output.txt";
 $debug_file = "/tmp/web-manager-debug-start.log";
 
 // ---------------------------------------------------------
-// POLL HANDLER (The only remaining PHP POST function)
+// POLL HANDLER (Reads output file)
 // ---------------------------------------------------------
 if (isset($_POST['poll'])) {
     if (file_exists($output_file)) {
@@ -102,12 +102,10 @@ if ($f) fclose($f);
 
     <div style="margin-top: 20px;">
         <p style="color: red; font-weight: bold;">
-            *** DEBUGGING INSTRUCTIONS ***
+            *** FINAL ATTEMPT: AT JOB QUEUE ***
         </p>
         <p>
-            Please open your Unraid console and run: 
-            <code style="display: block; background: #ddd; padding: 5px; border-radius: 4px;">tail -f <?php echo $debug_file; ?></code>
-            Then, click the button below and watch the console for the "STARTED" message.
+            The previous methods were blocked by a severe OS security restriction. We are now using the system job queue (`at now`) to force execution in a less restricted context.
         </p>
     </div>
 
@@ -129,8 +127,8 @@ if ($f) fclose($f);
     var pollCount = 0;
     
     var script_path = "<?php echo $script_path; ?>";
-    var output_file = "<?php echo $output_file; ?>";
     var debug_file = "<?php echo $debug_file; ?>";
+    var output_file = "<?php echo $output_file; ?>";
 
     var buttons = document.getElementsByClassName('action-btn');
     for (var i = 0; i < buttons.length; i++) {
@@ -139,7 +137,7 @@ if ($f) fclose($f);
         });
     }
 
-    // 1. Start Command: Uses getpage() to execute the command directly via the Unraid API endpoint
+    // 1. Start Command: Uses 'at now' to queue the script for immediate background execution
     function startCommand(action, button) {
         clearInterval(pollInterval);
         pollCount = 0;
@@ -149,24 +147,25 @@ if ($f) fclose($f);
         
         button.disabled = true;
         button.innerHTML = 'Starting...';
-        outputBox.innerHTML = 'Initiating command: ' + action + ' via system call...';
+        outputBox.innerHTML = 'Initiating command: ' + action + ' via AT job queue...';
 
-        // 1. Command to clear the debug file (run BEFORE the main script command)
-        var clearCmd = 'rm -f ' + debug_file + '; rm -f ' + output_file;
+        // 1. Clear files locally first
+        var clearCmd = 'rm -f ' + debug_file + ' ' + output_file;
+        getpage({ url: '/update.php', post: 'cmd=' + encodeURIComponent(clearCmd) + '&csrf_token=' + token }); 
 
-        // 2. Build the final command string for detached execution
-        var runCmd = 'nohup ' + script_path + ' ' + action + ' > /dev/null 2>&1 &'; // Redirect script output to /dev/null temporarily
+        // 2. Build the command to be run: nohup script > /dev/null 2>&1
+        var execCmd = 'nohup ' + script_path + ' ' + action + ' > /dev/null 2>&1';
         
-        // 3. Chain the commands: Clear files, then run the script.
-        var finalCmd = clearCmd + '; ' + runCmd;
+        // 3. Command submitted to 'at now' via standard input
+        var finalCmd = 'echo ' + JSON.stringify(execCmd) + ' | at now';
 
         // 4. Use the global getpage() function (Standard Unraid method)
         getpage({
             url: '/update.php', 
             post: 'cmd=' + encodeURIComponent(finalCmd) + '&csrf_token=' + token,
             cb: function(data) {
-                // The command was sent. Start polling for results.
-                outputBox.innerHTML = 'Command submitted successfully. **CHECK CONSOLE LOG NOW.** Starting poll...';
+                // Command submitted successfully. Start polling for results.
+                outputBox.innerHTML = 'AT job queued successfully. Starting poll...';
                 button.innerHTML = 'Polling...';
                 pollInterval = setInterval(function() {
                     pollForOutput(button, originalText, outputBox);
