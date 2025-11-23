@@ -40,88 +40,89 @@ exit 0
     </INLINE>
   </FILE>
 
-  <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/WebManager.page">
+  <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
       <![CDATA[
-Menu="OtherSettings"
+Menu="Utilities"
 Icon="servers.png"
-Version="&version;"
-Author="&author;"
 Title="Web Manager"
 ---
 <?php
-// PHP logic to handle script execution
-$scriptPath = ENTITY_scriptdir."/management_core.sh";
+// -----------------------------------------------------------
+// FIXED: Use PHP to dynamically find the plugin directory
+// -----------------------------------------------------------
+$plugin_root = dirname(__FILE__);
+$script_path = $plugin_root . "/scripts/management_core.sh";
 
-// Function to call the shell script and return the output
+// Function to execute the script
 function run_management_script($command) {
-    global $scriptPath;
-    $output = WebUI($scriptPath . " " . escapeshellarg($command));
+    global $script_path;
+    
+    // Check if script exists to prevent crashes
+    if (!file_exists($script_path)) {
+        return "Error: Script not found at " . $script_path;
+    }
+
+    // Unraid's WebUI function executes the command
+    // We add 2>&1 to capture error output too
+    $output = WebUI($script_path . " " . escapeshellarg($command) . " 2>&1");
     return $output;
 }
 
-// Check for an AJAX command request
+// Handle AJAX requests
 if (isset($_POST['action'])) {
-    $command = $_POST['action'];
-    $result = run_management_script($command);
-    
-    header('Content-Type: text/plain');
+    $result = run_management_script($_POST['action']);
     echo $result;
-    exit;
+    exit; // Stop execution here so we don't reload the whole page
 }
-
 ?>
 
-<div>
-    <h2>Web Server Manager Dashboard</h2>
-    <p>Use the buttons below to interact with your server management scripts.</p>
-
-    <div>
-        <h3>Server Operations</h3>
-        <button id="setup-btn" onclick="runCommand('setup-webserver', this)">
-            Setup Web Server
-        </button>
-        <button id="status-btn" onclick="runCommand('status-check', this)">
-            Check Status
-        </button>
+<div style="padding: 20px;">
+    <h2>Web Server Manager</h2>
+    <p><b>Plugin Location:</b> <?php echo $plugin_root; ?></p>
+    <p><b>Script Target:</b> <?php echo $script_path; ?></p>
+    
+    <div style="margin-top: 20px;">
+        <button type="button" onclick="runCommand('setup-webserver', this)">Setup Web Server</button>
+        <button type="button" onclick="runCommand('status-check', this)">Check Status</button>
     </div>
 
-    <div>
-        <h3>Script Output</h3>
-        <pre id="output-box">Output will appear here...</pre>
+    <div style="margin-top: 20px;">
+        <label>Output:</label>
+        <pre id="output-box" style="background:#f0f0f0; color:#333; padding:10px; border:1px solid #ccc; min-height:100px;">Waiting for command...</pre>
     </div>
 </div>
 
 <script>
     function runCommand(action, button) {
-        const outputBox = document.getElementById('output-box');
-        const originalText = button.innerHTML;
+        var outputBox = document.getElementById('output-box');
+        var originalText = button.innerHTML;
         
-        outputBox.innerHTML = 'Executing ' + action + '... Please wait.';
         button.disabled = true;
         button.innerHTML = 'Running...';
+        outputBox.innerHTML = 'Executing ' + action + '...';
 
-        // AJAX request to execute the PHP code, which calls the shell script
-        fetch(document.location.href, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: 'action=' + encodeURIComponent(action)
-        })
-        .then(response => response.text())
-        .then(data => {
-            // Display the output from the shell script
-            outputBox.innerHTML = data;
-        })
-        .catch(error => {
-            outputBox.innerHTML = 'Error executing command: ' + error;
-            console.error('Fetch error:', error);
-        })
-        .finally(() => {
+        var formData = new FormData();
+        formData.append('action', action);
+
+        // Using standard XHR for maximum compatibility on Unraid
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                outputBox.innerHTML = xhr.responseText;
+            } else {
+                outputBox.innerHTML = 'Error: ' + xhr.status;
+            }
             button.disabled = false;
             button.innerHTML = originalText;
-        });
+        };
+        xhr.onerror = function() {
+            outputBox.innerHTML = 'Request Failed';
+            button.disabled = false;
+            button.innerHTML = originalText;
+        };
+        xhr.send(formData);
     }
 </script>
       ]]>
