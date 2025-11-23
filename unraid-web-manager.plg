@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.5">
+  <!ENTITY version "0.1.6">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
@@ -25,6 +25,8 @@ case "$COMMAND" in
   setup-webserver)
     echo "--- Running Basic Web Server Setup ---" >> "$OUTPUT_FILE"
     echo "Simulating server configuration..." >> "$OUTPUT_FILE"
+    # Added a quick sleep here to ensure the poll has time to start
+    sleep 1
     echo "Setup complete. Status: Success" >> "$OUTPUT_FILE"
     ;;
 
@@ -47,7 +49,6 @@ exit 0
 
   <!-- 
   2. EXECUTE SCRIPT HELPER (Uses secure, non-blocking exec_cmd)
-  This page is only called via AJAX to START the script.
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/ExecuteScript.php">
     <INLINE>
@@ -86,7 +87,7 @@ echo "Script successfully initiated: " . $full_cmd;
 
   <!-- 
   3. WEB MANAGER PAGE (The visible dashboard)
-  This page handles the UI, starts the script, and polls the output file.
+  Now uses plain text polling for maximum stability.
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -100,26 +101,26 @@ $plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
 $output_file = "/tmp/unraid_web_manager_output.txt";
 
-// ---------------------------------------------------------
-// POLL HANDLER (for reading the file only)
-// ---------------------------------------------------------
-if (isset($_POST['poll'])) {
-    if (file_exists($output_file)) {
-        // Return output and a flag to stop polling
-        echo json_encode(["status" => "complete", "output" => file_get_contents($output_file)]);
-        // Optionally clean up the file here: unlink($output_file); 
-    } else {
-        // Return a flag to keep polling
-        echo json_encode(["status" => "running", "output" => "Script is running in the background..."]);
-    }
-    exit;
-}
-
 // Diagnostics for the display page
 $file_perms = substr(sprintf('%o', fileperms($script_path)), -4);
 $f = file_exists($script_path) ? fopen($script_path, 'r') : null;
 $first_line = $f ? fgets($f) : "File not found";
 if ($f) fclose($f);
+
+// ---------------------------------------------------------
+// POLL HANDLER (Plain Text Polling)
+// ---------------------------------------------------------
+if (isset($_POST['poll'])) {
+    if (file_exists($output_file)) {
+        // Line 1: STATUS (complete)
+        // Line 2: OUTPUT (content)
+        echo "complete\n" . file_get_contents($output_file);
+    } else {
+        // Line 1: STATUS (running)
+        echo "running\n";
+    }
+    exit;
+}
 ?>
 
 <div style="padding: 20px;">
@@ -147,8 +148,8 @@ if ($f) fclose($f);
     var token = "";
     if (typeof csrf_token !== 'undefined') token = csrf_token;
     var pollInterval;
+    var pollCount = 0;
 
-    // Attach events to all buttons with class 'action-btn'
     var buttons = document.getElementsByClassName('action-btn');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', function() {
@@ -158,8 +159,8 @@ if ($f) fclose($f);
 
     // 1. Start Command: Calls ExecuteScript.php to initiate the background process
     function startCommand(action, button) {
-        // Clear previous polling
         clearInterval(pollInterval);
+        pollCount = 0;
         
         var outputBox = document.getElementById('output-box');
         var originalText = button.innerHTML;
@@ -172,7 +173,7 @@ if ($f) fclose($f);
         formData.append('action', action);
         formData.append('csrf_token', token);
 
-        // Fetch to the dedicated ExecuteScript.php file
+        // Initiate script via the dedicated helper file
         fetch('ExecuteScript.php', {
             method: 'POST',
             body: formData
@@ -182,7 +183,10 @@ if ($f) fclose($f);
             // Script initiated successfully. Start polling for results.
             outputBox.innerHTML = 'Script started in background. Polling for output file...';
             button.innerHTML = 'Running...';
-            pollInterval = setInterval(pollForOutput, 1000, button, originalText, outputBox); // Poll every second
+            // Start polling every 1 second, passing necessary context
+            pollInterval = setInterval(function() {
+                pollForOutput(button, originalText, outputBox);
+            }, 1000); 
         })
         .catch(error => {
             outputBox.innerHTML = 'Error initiating script via ExecuteScript.php: ' + error;
@@ -191,34 +195,50 @@ if ($f) fclose($f);
         });
     }
 
-    // 2. Poll Output: Repeatedly checks the current page to read the temp file
+    // 2. Poll Output: Repeatedly checks the current page to read the temp file (Using robust XHR)
     function pollForOutput(button, originalText, outputBox) {
+        pollCount++;
+        
         var formData = new FormData();
         formData.append('poll', 'true');
         formData.append('csrf_token', token);
 
-        fetch(window.location.href, { // Posting back to WebManager.page
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'complete') {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', window.location.href, true);
+        
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                var responseText = xhr.responseText.trim();
+                var lines = responseText.split('\n');
+                var status = lines[0]; // First line is the status
+
+                if (status === 'complete') {
+                    clearInterval(pollInterval);
+                    // The rest of the response is the output
+                    outputBox.innerHTML = lines.slice(1).join('\n');
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                } else {
+                    // Still running, update status message with dots
+                    var dots = '.'.repeat(pollCount % 4);
+                    outputBox.innerHTML = 'Script running in background. Polling for output file' + dots;
+                }
+            } else {
                 clearInterval(pollInterval);
-                outputBox.innerHTML = data.output;
+                outputBox.innerHTML = 'Polling HTTP Error: ' + xhr.status + "\n" + xhr.responseText;
                 button.disabled = false;
                 button.innerHTML = originalText;
-            } else {
-                // Still running, update status message
-                outputBox.innerHTML += '.'; 
             }
-        })
-        .catch(error => {
+        };
+        
+        xhr.onerror = function() {
             clearInterval(pollInterval);
-            outputBox.innerHTML = 'Polling error: ' + error;
+            outputBox.innerHTML = 'Polling Network Error.';
             button.disabled = false;
             button.innerHTML = originalText;
-        });
+        };
+        
+        xhr.send(formData);
     }
 </script>
       ]]>
