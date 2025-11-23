@@ -48,7 +48,10 @@ Icon="servers.png"
 Title="Web Manager"
 ---
 <?php
-$plugin_root = dirname(__FILE__);
+// -----------------------------------------------------------
+// FIXED: Explicitly define the plugin path
+// -----------------------------------------------------------
+$plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
 
 function run_management_script($command) {
@@ -58,15 +61,13 @@ function run_management_script($command) {
         return "Error: Script not found at " . $script_path;
     }
 
-    // Force executable permissions just in case
+    // Force permissions
     chmod($script_path, 0755);
 
-    // Build the command
+    // Build and execute command
     $cmd = $script_path . " " . escapeshellarg($command) . " 2>&1";
-    
-    // Execute
     $output = shell_exec($cmd);
-    return $output ? $output : "No output returned (or script failed).";
+    return $output ? $output : "No output returned.";
 }
 
 if (isset($_POST['action'])) {
@@ -77,6 +78,7 @@ if (isset($_POST['action'])) {
 
 <div style="padding: 20px;">
     <h2>Web Server Manager</h2>
+    <!-- Debugging: Verify this path matches your folder -->
     <p><b>Script Target:</b> <?php echo $script_path; ?></p>
     
     <div style="margin-top: 20px;">
@@ -91,14 +93,11 @@ if (isset($_POST['action'])) {
 </div>
 
 <script>
-    // Unraid 6.x+ usually defines csrf_token globally. 
-    // If not, we try to find it in the DOM or cookie.
     var token = "";
     if (typeof csrf_token !== 'undefined') {
         token = csrf_token;
     }
 
-    // Attach events to all buttons with class 'action-btn'
     var buttons = document.getElementsByClassName('action-btn');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', function() {
@@ -116,7 +115,6 @@ if (isset($_POST['action'])) {
 
         var formData = new FormData();
         formData.append('action', action);
-        // CRITICAL: Add the CSRF token
         formData.append('csrf_token', token);
 
         var xhr = new XMLHttpRequest();
@@ -133,7 +131,7 @@ if (isset($_POST['action'])) {
         };
         
         xhr.onerror = function() {
-            outputBox.innerHTML = 'Request Error (Network/Blocked)';
+            outputBox.innerHTML = 'Request Error';
             button.disabled = false;
             button.innerHTML = originalText;
         };
