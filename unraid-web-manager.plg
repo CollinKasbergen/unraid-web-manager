@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.8">
+  <!ENTITY version "0.1.9">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
   <!-- 
-  1. CORE SCRIPT (Writes output to a temp file for PHP to read)
+  1. CORE SCRIPT (Now writes to a separate debug log FIRST)
   -->
   <FILE Name="&scriptdir;/management_core.sh" Mode="0777">
     <INLINE>
@@ -17,15 +17,18 @@
 #!/bin/bash
 COMMAND="$1"
 OUTPUT_FILE="/tmp/unraid_web_manager_output.txt"
+DEBUG_FILE="/tmp/web-manager-debug-start.log"
 
-# Clear previous output and set a start marker
+# CRITICAL DEBUG STEP 1: Write immediately to the debug log.
+echo "$(date +'%Y-%m-%d %H:%M:%S') [DEBUG] Script STARTED with command: $COMMAND" >> "$DEBUG_FILE"
+
+# Clear previous output
 echo "$(date) - Starting $COMMAND..." > "$OUTPUT_FILE"
 
 case "$COMMAND" in
   setup-webserver)
     echo "--- Running Basic Web Server Setup ---" >> "$OUTPUT_FILE"
     echo "Simulating server configuration..." >> "$OUTPUT_FILE"
-    # Delay added to ensure the background process has time to start
     sleep 1
     echo "Setup complete. Status: Success" >> "$OUTPUT_FILE"
     ;;
@@ -41,6 +44,7 @@ case "$COMMAND" in
     ;;
 esac
 
+echo "$(date +'%Y-%m-%d %H:%M:%S') [DEBUG] Script FINISHED processing $COMMAND." >> "$DEBUG_FILE"
 echo "$(date) - Finished $COMMAND." >> "$OUTPUT_FILE"
 exit 0
       ]]>
@@ -62,6 +66,7 @@ Title="Web Manager"
 $plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
 $output_file = "/tmp/unraid_web_manager_output.txt";
+$debug_file = "/tmp/web-manager-debug-start.log";
 
 // ---------------------------------------------------------
 // POLL HANDLER (The only remaining PHP POST function)
@@ -96,6 +101,17 @@ if ($f) fclose($f);
     </div>
 
     <div style="margin-top: 20px;">
+        <p style="color: red; font-weight: bold;">
+            *** DEBUGGING INSTRUCTIONS ***
+        </p>
+        <p>
+            Please open your Unraid console and run: 
+            <code style="display: block; background: #ddd; padding: 5px; border-radius: 4px;">tail -f <?php echo $debug_file; ?></code>
+            Then, click the button below and watch the console for the "STARTED" message.
+        </p>
+    </div>
+
+    <div style="margin-top: 20px;">
         <button type="button" class="action-btn" data-cmd="setup-webserver">Setup Web Server</button>
         <button type="button" class="action-btn" data-cmd="status-check">Check Status</button>
     </div>
@@ -112,9 +128,9 @@ if ($f) fclose($f);
     var pollInterval;
     var pollCount = 0;
     
-    // Global variable expected by Unraid's getpage() mechanism
     var script_path = "<?php echo $script_path; ?>";
     var output_file = "<?php echo $output_file; ?>";
+    var debug_file = "<?php echo $debug_file; ?>";
 
     var buttons = document.getElementsByClassName('action-btn');
     for (var i = 0; i < buttons.length; i++) {
@@ -135,31 +151,28 @@ if ($f) fclose($f);
         button.innerHTML = 'Starting...';
         outputBox.innerHTML = 'Initiating command: ' + action + ' via system call...';
 
-        // 1. Clear the output file locally first
-        fetch(window.location.href, { 
-            method: 'POST',
-            body: new FormData() // Empty POST to ensure no side effects
-        }); 
+        // 1. Command to clear the debug file (run BEFORE the main script command)
+        var clearCmd = 'rm -f ' + debug_file + '; rm -f ' + output_file;
 
         // 2. Build the final command string for detached execution
-        // The command will be executed by the Unraid terminal endpoint
-        var finalCmd = 'dos2unix ' + script_path + '; chmod +x ' + script_path + '; nohup ' + script_path + ' ' + action + ' > ' + output_file + ' 2>&1 &';
+        var runCmd = 'nohup ' + script_path + ' ' + action + ' > /dev/null 2>&1 &'; // Redirect script output to /dev/null temporarily
+        
+        // 3. Chain the commands: Clear files, then run the script.
+        var finalCmd = clearCmd + '; ' + runCmd;
 
-        // 3. Use the global getpage() function (Standard Unraid method)
-        // This function handles the secure communication with the server's command execution endpoint.
+        // 4. Use the global getpage() function (Standard Unraid method)
         getpage({
-            url: '/update.php', // The standard command execution endpoint
+            url: '/update.php', 
             post: 'cmd=' + encodeURIComponent(finalCmd) + '&csrf_token=' + token,
             cb: function(data) {
-                // The command was sent to the kernel handler. Now start polling.
-                outputBox.innerHTML = 'Command submitted successfully. Polling for output file...';
-                button.innerHTML = 'Running...';
+                // The command was sent. Start polling for results.
+                outputBox.innerHTML = 'Command submitted successfully. **CHECK CONSOLE LOG NOW.** Starting poll...';
+                button.innerHTML = 'Polling...';
                 pollInterval = setInterval(function() {
                     pollForOutput(button, originalText, outputBox);
                 }, 1000); 
             },
             error: function(status) {
-                // If getpage() itself fails, it's a major network or token error
                 outputBox.innerHTML = 'CRITICAL ERROR: Unraid system command execution failed. HTTP Status: ' + status;
                 button.disabled = false;
                 button.innerHTML = originalText;
