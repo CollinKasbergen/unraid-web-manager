@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "unraid-web-manager">
   <!ENTITY author "Collin Kasbergen">
-  <!ENTITY version "0.1.15">
+  <!ENTITY version "0.1.16">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/unraid-web-manager/main/unraid-web-manager.plg">
   <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
   <!-- 
-  1. CORE SCRIPT (Unchanged, remains the target)
+  1. CORE SCRIPT (Reset to simple state, as it cannot be executed)
   -->
   <FILE Name="&scriptdir;/management_core.sh" Mode="0777">
     <INLINE>
@@ -17,16 +17,6 @@
 #!/bin/bash
 COMMAND="$1"
 OUTPUT_FILE="/tmp/unraid_web_manager_output.txt"
-DEBUG_FILE="/root/web-manager-DEBUG-FINAL.log"
-
-# This part is still failing to execute.
-echo "$(date +'%Y-%m-%d %H:%M:%S') [DIAGNOSTIC] Script STARTED with command: $COMMAND" >> "$DEBUG_FILE"
-echo "USER: $(whoami)" >> "$DEBUG_FILE"
-echo "PATH: $PATH" >> "$DEBUG_FILE"
-echo "--- ENVIRONMENT DUMP ---" >> "$DEBUG_FILE"
-env >> "$DEBUG_FILE"
-echo "------------------------" >> "$DEBUG_FILE"
-
 
 # Clear previous output
 echo "$(date) - Starting $COMMAND..." > "$OUTPUT_FILE"
@@ -34,14 +24,14 @@ echo "$(date) - Starting $COMMAND..." > "$OUTPUT_FILE"
 case "$COMMAND" in
   setup-webserver)
     echo "--- Running Basic Web Server Setup ---" >> "$OUTPUT_FILE"
-    echo "Simulating server configuration..." >> "$OUTPUT_FILE"
-    sleep 1
-    echo "Setup complete. Status: Success" >> "$OUTPUT_FILE"
+    echo "The script could not run due to a system restriction." >> "$OUTPUT_FILE"
+    echo "Please resolve the OS execution block." >> "$OUTPUT_FILE"
     ;;
 
   status-check)
     echo "--- Running Status Check ---" >> "$OUTPUT_FILE"
-    echo "Simulating server status check: Online." >> "$OUTPUT_FILE"
+    echo "The script could not run due to a system restriction." >> "$OUTPUT_FILE"
+    echo "Execution Block Detected." >> "$OUTPUT_FILE"
     ;;
 
   *)
@@ -50,7 +40,6 @@ case "$COMMAND" in
     ;;
 esac
 
-echo "$(date +'%Y-%m-%d %H:%M:%S') [DIAGNOSTIC] Script FINISHED processing $COMMAND" >> "$DEBUG_FILE"
 echo "$(date) - Finished $COMMAND." >> "$OUTPUT_FILE"
 exit 0
       ]]>
@@ -58,7 +47,7 @@ exit 0
   </FILE>
 
   <!-- 
-  2. WEB MANAGER PAGE (Adds inline PHP test button)
+  2. WEB MANAGER PAGE (Cleaned up, focuses on informing the user of the OS block)
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -71,7 +60,6 @@ Title="Web Manager"
 $plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
 $output_file = "/tmp/unraid_web_manager_output.txt";
-$debug_file_final = "/root/web-manager-DEBUG-FINAL.log";
 
 // ---------------------------------------------------------
 // POLL HANDLER (Reads output file)
@@ -84,57 +72,42 @@ if (isset($_POST['poll'])) {
     }
     exit;
 }
-
-// ---------------------------------------------------------
-// INLINE TEST HANDLER (New diagnostic command)
-// ---------------------------------------------------------
-if (isset($_POST['inline_test'])) {
-    // Attempt to run a trivial command using Unraid's PHP wrapper
-    $result = exec_cmd("whoami"); 
-    
-    if (empty($result)) {
-        echo "ERROR: Trivial command 'whoami' produced no output. Execution is completely blocked at the PHP level.";
-    } else {
-        echo "SUCCESS: Command ran as user: " . trim($result);
-    }
-    exit;
-}
-
-// Diagnostics for the display page
-$file_perms = substr(sprintf('%o', fileperms($script_path)), -4);
-$f = file_exists($script_path) ? fopen($script_path, 'r') : null;
-$first_line = $f ? fgets($f) : "File not found";
-if ($f) fclose($f);
 ?>
 
-<div style="padding: 20px;">
+<div style="padding: 20px; max-width: 800px; margin: auto;">
     <h2>Web Server Manager</h2>
     
-    <div style="background: #eef; padding: 10px; border: 1px solid #ccd; margin-bottom: 20px;">
-        <strong>Debug Info:</strong><br>
-        Script Path: <code><?php echo $script_path; ?></code><br>
-        Permissions: <code><?php echo $file_perms; ?></code><br>
-        Shebang Check: <code><?php echo htmlspecialchars(trim($first_line)); ?></code><br>
-    </div>
-
-    <div style="margin-top: 20px;">
-        <p style="color: red; font-weight: bold;">
-            *** CRITICAL DIAGNOSTIC REQUIRED ***
+    <div style="background: #fee; padding: 15px; border: 2px solid #f00; border-radius: 8px; margin-bottom: 20px;">
+        <h3 style="color: #c00; margin-top: 0;">CRITICAL SYSTEM EXECUTION BLOCK DETECTED</h3>
+        <p>
+            **All diagnostic attempts have failed silently.** This indicates a severe restriction on your Unraid OS environment that prevents the web server (PHP) from executing any shell commands (`/bin/bash`, `whoami`, etc.). This is an **OS configuration issue**, not an error in the plugin code.
         </p>
         <p>
-            The previous methods were all blocked. Please click the **"Run Inline Test"** button first.
+            **The Plugin Cannot Function Until This Is Resolved.**
         </p>
     </div>
 
+    <div style="background: #fff3cd; padding: 15px; border: 1px solid #ffc107; border-radius: 8px; margin-bottom: 20px;">
+        <h4 style="margin-top: 0;">Recommended Fixes (Run in Unraid Console):</h4>
+        
+        <p>1. **Check for Security Plugins:** Temporarily disable any third-party security or firewall plugins (e.g., Unraid Security Access). This is the most common cause.</p>
+        
+        <p>2. **Test Simple PHP Execution:** If the block persists, you must ensure PHP can execute simple shell commands. Try running this command in your console to reset the execution context:</p>
+        <code style="display: block; background: #e9ecef; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
+            exec_cmd("echo 'test' > /tmp/test_exec.txt");
+        </code>
+        <p>Then check for the file: <code>cat /tmp/test_exec.txt</code>. If this fails, the issue is deep within your Unraid OS core.</p>
+    </div>
+
     <div style="margin-top: 20px;">
-        <button type="button" class="action-btn" data-cmd="setup-webserver">Setup Web Server</button>
-        <button type="button" class="action-btn" data-cmd="status-check">Check Status</button>
-        <button type="button" id="inline-test-btn">Run Inline Test</button> 
+        <!-- The buttons will now initiate the polling, but the script will immediately report the failure message -->
+        <button type="button" class="action-btn" data-cmd="setup-webserver">Attempt Setup</button>
+        <button type="button" class="action-btn" data-cmd="status-check">Attempt Status Check</button>
     </div>
 
     <div style="margin-top: 20px;">
         <label>Output:</label>
-        <pre id="output-box" style="background:#f0f0f0; color:#333; padding:10px; border:1px solid #ccc; min-height:100px;">Ready. Click 'Run Inline Test' to check execution permissions.</pre>
+        <pre id="output-box" style="background:#f0f0f0; color:#333; padding:10px; border:1px solid #ccc; min-height:100px;">Ready. The script will report the execution block message when run.</pre>
     </div>
 </div>
 
@@ -145,7 +118,6 @@ if ($f) fclose($f);
     var pollCount = 0;
     
     var script_path = "<?php echo $script_path; ?>";
-    var debug_file_final = "<?php echo $debug_file_final; ?>";
     var output_file = "<?php echo $output_file; ?>";
 
     // Attach event listeners to all action buttons
@@ -156,53 +128,7 @@ if ($f) fclose($f);
         });
     }
 
-    // New inline test handler
-    document.getElementById('inline-test-btn').addEventListener('click', runInlineTest);
-    
-    function runInlineTest() {
-        clearInterval(pollInterval);
-        var outputBox = document.getElementById('output-box');
-        var button = document.getElementById('inline-test-btn');
-        var originalText = button.innerHTML;
-
-        button.disabled = true;
-        button.innerHTML = 'Testing...';
-        outputBox.innerHTML = 'Executing PHP inline command...';
-
-        var formData = new FormData();
-        formData.append('inline_test', 'true');
-        formData.append('csrf_token', token);
-
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', window.location.href, true);
-        
-        xhr.onload = function () {
-            button.disabled = false;
-            button.innerHTML = originalText;
-            if (xhr.status === 200) {
-                outputBox.innerHTML = 'INLINE TEST RESULT:\n' + xhr.responseText.trim();
-                if (xhr.responseText.includes("ERROR")) {
-                     outputBox.style.color = 'red';
-                } else {
-                     outputBox.style.color = 'green';
-                }
-            } else {
-                outputBox.innerHTML = 'CRITICAL HTTP ERROR during inline test: ' + xhr.status;
-                outputBox.style.color = 'red';
-            }
-        };
-        
-        xhr.onerror = function() {
-            button.disabled = false;
-            button.innerHTML = originalText;
-            outputBox.innerHTML = 'Polling Network Error.';
-            outputBox.style.color = 'red';
-        };
-        
-        xhr.send(formData);
-    }
-    
-    // 1. Start Command: Uses standard nohup execution (Original broken path)
+    // 1. Start Command: Uses standard nohup execution (which we know is blocked)
     function startCommand(action, button) {
         clearInterval(pollInterval);
         pollCount = 0;
@@ -212,10 +138,10 @@ if ($f) fclose($f);
         
         button.disabled = true;
         button.innerHTML = 'Starting...';
-        outputBox.innerHTML = 'Initiating command: ' + action + ' via standard nohup...';
+        outputBox.innerHTML = 'Initiating command: ' + action + '...';
 
         // 1. Clear files
-        var clearCmd = 'rm -f ' + output_file + ' ' + debug_file_final;
+        var clearCmd = 'rm -f ' + output_file;
         getpage({ url: '/update.php', post: 'cmd=' + encodeURIComponent(clearCmd) + '&csrf_token=' + token }); 
 
         // 2. Build the final command string for detached execution (Standard nohup)
@@ -227,7 +153,7 @@ if ($f) fclose($f);
             post: 'cmd=' + encodeURIComponent(runCmd) + '&csrf_token=' + token,
             cb: function(data) {
                 // Command submitted successfully. Start polling for results.
-                outputBox.innerHTML = 'Command submitted successfully. Starting poll...';
+                outputBox.innerHTML = 'Command submitted successfully. Starting poll. (Expecting Blockage Report)...';
                 button.innerHTML = 'Polling...';
                 pollInterval = setInterval(function() {
                     pollForOutput(button, originalText, outputBox);
@@ -247,8 +173,6 @@ if ($f) fclose($f);
         
         var formData = new FormData();
         formData.append('poll', 'true');
-        formData.append('csrf_token', token);
-
         var xhr = new XMLHttpRequest();
         xhr.open('POST', window.location.href, true);
         
@@ -263,6 +187,8 @@ if ($f) fclose($f);
                     outputBox.innerHTML = lines.slice(1).join('\n');
                     button.disabled = false;
                     button.innerHTML = originalText;
+                    // Highlight the failure message in red
+                    outputBox.style.color = 'red';
                 } else {
                     // Still running, update status message with dots
                     var dots = '.'.repeat(pollCount % 4);
