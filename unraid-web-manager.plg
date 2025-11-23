@@ -4,23 +4,126 @@
   <!ENTITY author "Algorithmic Alchemy">
   <!ENTITY version "2025.11.22">
   <!ENTITY pluginURL "https://raw.githubusercontent.com/CollinKasbergen/hello-world-unraid-plugin/main/unraid-web-manager.plg">
-  <!ENTITY scriptdir "/usr/local/emhttp/plugins/&name;/scripts">
+  <!ENTITY scriptdir "/usr/local/emhttp/plugins/unraid-web-manager/scripts">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;">
 
-  <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/HelloWorld.page">
+  <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/scripts/management_core.sh">
     <INLINE>
       <![CDATA[
-Menu="Settings"
-Icon="hello-world-safe.png"
+#!/bin/bash
+# Path: /usr/local/emhttp/plugins/unraid-web-manager/scripts/management_core.sh
+
+# This file executes server management tasks.
+COMMAND="$1"
+
+case "$COMMAND" in
+  setup-webserver)
+    echo "--- Running Basic Web Server Setup ---"
+    echo "Simulating server configuration..."
+    echo "Setup complete. Status: Success"
+    ;;
+
+  status-check)
+    echo "--- Running Status Check ---"
+    echo "Simulating server status check: Online."
+    ;;
+
+  *)
+    echo "Error: Unknown command '$COMMAND'."
+    exit 1
+    ;;
+esac
+
+exit 0
+      ]]>
+    </INLINE>
+  </FILE>
+
+  <FILE Name="/usr/local/emhttp/plugins/unraid-web-manager/WebManager.page">
+    <INLINE>
+      <![CDATA[
+Menu="OtherSettings"
+Icon="servers.png"
 Version="&version;"
 Author="&author;"
-Title="Hello World Unraid Web Manager"
+Title="Web Manager"
 ---
 <?php
-  echo "<h1>Hello World from Unraid Web Manager! ✅</h1>";
-  echo "<p>This page confirms the full header attributes and PHP are working correctly.</p>";
+// PHP logic to handle script execution
+$scriptPath = ENTITY_scriptdir."/management_core.sh";
+
+// Function to call the shell script and return the output
+function run_management_script($command) {
+    global $scriptPath;
+    $output = WebUI($scriptPath . " " . escapeshellarg($command));
+    return $output;
+}
+
+// Check for an AJAX command request
+if (isset($_POST['action'])) {
+    $command = $_POST['action'];
+    $result = run_management_script($command);
+    
+    header('Content-Type: text/plain');
+    echo $result;
+    exit;
+}
+
 ?>
+
+<div>
+    <h2>Web Server Manager Dashboard</h2>
+    <p>Use the buttons below to interact with your server management scripts.</p>
+
+    <div>
+        <h3>Server Operations</h3>
+        <button id="setup-btn" onclick="runCommand('setup-webserver', this)">
+            Setup Web Server
+        </button>
+        <button id="status-btn" onclick="runCommand('status-check', this)">
+            Check Status
+        </button>
+    </div>
+
+    <div>
+        <h3>Script Output</h3>
+        <pre id="output-box">Output will appear here...</pre>
+    </div>
+</div>
+
+<script>
+    function runCommand(action, button) {
+        const outputBox = document.getElementById('output-box');
+        const originalText = button.innerHTML;
+        
+        outputBox.innerHTML = 'Executing ' + action + '... Please wait.';
+        button.disabled = true;
+        button.innerHTML = 'Running...';
+
+        // AJAX request to execute the PHP code, which calls the shell script
+        fetch(document.location.href, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: 'action=' + encodeURIComponent(action)
+        })
+        .then(response => response.text())
+        .then(data => {
+            // Display the output from the shell script
+            outputBox.innerHTML = data;
+        })
+        .catch(error => {
+            outputBox.innerHTML = 'Error executing command: ' + error;
+            console.error('Fetch error:', error);
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    }
+</script>
       ]]>
     </INLINE>
   </FILE>
