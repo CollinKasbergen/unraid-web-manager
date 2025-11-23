@@ -47,7 +47,7 @@ exit 0
   </FILE>
 
   <!-- 
-  2. WEB MANAGER PAGE (Reads output from the temp file)
+  2. WEB MANAGER PAGE V2 (Reads output from the temp file)
   -->
   <FILE Name="/usr/local/emhttp/plugins/&name;/WebManager.page">
     <INLINE>
@@ -60,6 +60,14 @@ Title="Web Manager"
 $plugin_root = "/usr/local/emhttp/plugins/unraid-web-manager";
 $script_path = $plugin_root . "/scripts/management_core.sh";
 $output_file = "/tmp/unraid_web_manager_output.txt";
+$timeout_seconds = 7; // Timeout for polling the output file
+
+// Diagnostics for the display page
+$file_perms = substr(sprintf('%o', fileperms($script_path)), -4);
+$f = file_exists($script_path) ? fopen($script_path, 'r') : null;
+$first_line = $f ? fgets($f) : "File not found";
+if ($f) fclose($f);
+
 
 // ---------------------------------------------------------
 // ACTION HANDLER
@@ -67,44 +75,43 @@ $output_file = "/tmp/unraid_web_manager_output.txt";
 if (isset($_POST['action'])) {
     
     // 1. Self-Healing: Clean line endings and force permissions
+    // We run this first, but detached execution handles the main issue
     shell_exec("dos2unix " . escapeshellarg($script_path) . " 2>&1");
     chmod($script_path, 0777);
 
-    // 2. Prepare Command for WebUI Background Execution
+    // 2. Prepare Command for Background Execution
     $command = escapeshellarg($_POST['action']);
     
-    // CRITICAL FIX: Run the command in a background subshell using WebUI
-    $full_cmd = "($script_path $command &)"; 
-    
-    // We use WebUI here, but it should return instantly because of the &
-    WebUI($full_cmd);
+    // CRITICAL FIX: Use 'bash -c' to force a clean shell and detach the process (&)
+    // We redirect stdout/stderr to a temporary file, which we then poll.
+    $exec_cmd = "$script_path $command > $output_file 2>&1";
+    $full_cmd = "bash -c " . escapeshellarg($exec_cmd . " &");
 
-    // 3. Wait up to 5 seconds for the output file to appear/be written
-    $output = "Command sent successfully, waiting for script to write output...";
-    $timeout = 5; 
+    // 3. Execute the command in the background
+    exec($full_cmd);
+
+    // 4. Wait for the output file to appear/be written (Max $timeout_seconds)
+    $output = "Error: Output file not ready.";
     $start_time = time();
+    $file_ready = false;
 
-    while (!file_exists($output_file) && (time() - $start_time < $timeout)) {
+    // Remove the file first to ensure we read fresh content
+    if (file_exists($output_file)) unlink($output_file);
+
+    while (!file_exists($output_file) && (time() - $start_time < $timeout_seconds)) {
         usleep(100000); // Wait 100ms
     }
 
     if (file_exists($output_file)) {
         $output = file_get_contents($output_file);
-        // Optionally clean up the file afterwards
-        // unlink($output_file); 
+        $file_ready = true;
     } else {
-        $output = "Error: Script did not write output file within 5 seconds.";
+        $output = "Error: Script failed to write output file within $timeout_seconds seconds. PHP returned immediately, but the background process may be failing (Return Code 127/126) or still running.";
     }
 
     echo $output;
     exit;
 }
-
-// Diagnostics for the display page
-$file_perms = substr(sprintf('%o', fileperms($script_path)), -4);
-$f = file_exists($script_path) ? fopen($script_path, 'r') : null;
-$first_line = $f ? fgets($f) : "File not found";
-if ($f) fclose($f);
 ?>
 
 <div style="padding: 20px;">
@@ -153,11 +160,11 @@ if ($f) fclose($f);
 
         var xhr = new XMLHttpRequest();
         xhr.open('POST', window.location.href, true);
-        xhr.timeout = 7000; // Increased timeout slightly
-        
+        xhr.timeout = 8000; // Giving the PHP script plenty of time (8 seconds)
+
         xhr.onload = function () {
             if (xhr.status === 200) {
-                // Display the output read from the file
+                // If it worked, it should contain the script output
                 outputBox.innerHTML = xhr.responseText; 
             } else {
                 outputBox.innerHTML = 'HTTP Error: ' + xhr.status + "\n" + xhr.responseText;
@@ -167,13 +174,13 @@ if ($f) fclose($f);
         };
         
         xhr.ontimeout = function () {
-            outputBox.innerHTML = 'Error: Request timed out. Check if script is running in background.';
+            outputBox.innerHTML = 'Error: Request timed out. The PHP script failed to respond within 8 seconds, indicating a severe execution block.';
             button.disabled = false;
             button.innerHTML = originalText;
         };
 
         xhr.onerror = function() {
-            outputBox.innerHTML = 'Network/Request Error. Check console (F12).';
+            outputBox.innerHTML = 'Network/Request Error.';
             button.disabled = false;
             button.innerHTML = originalText;
         };
